@@ -16,7 +16,7 @@ from Quartz import (
 # --- 使用者設定 ---
 # ===================================================================
 TARGET_WINDOW_ID = 20540
-PREVIEW_BASE_WIDTH = 170
+PREVIEW_BASE_WIDTH = 130
 DEFAULT_X_POS = 50
 DEFAULT_Y_POS = 50
 REFRESH_RATE_MS = 50
@@ -101,7 +101,7 @@ class WindowMonitor:
                 box = (
                     crop_h_each_side + 1360, crop_v_each_side + 100,
                     pil_image.width - crop_h_each_side, 
-                    pil_image.height - crop_v_each_side
+                    pil_image.height - crop_v_each_side - 240
                 )
                 cropped_image = pil_image.crop(box)
             except ValueError:
