@@ -139,8 +139,7 @@ source .venv-py311/bin/activate
 在已啟用的環境中，安裝 `py2app` 以及您應用程式需要的所有其他套件。
 
 ```bash
-# 將 YourPackage1 YourPackage2 換成您專案的實際依賴
-pip install py2app YourPackage1 YourPackage2
+pip install py2app
 ```
 
 ### 步驟三：建立 `setup.py` 設定檔
