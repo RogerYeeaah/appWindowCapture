@@ -18,7 +18,7 @@ TARGET_WINDOW_ID = 20540
 PREVIEW_BASE_WIDTH = 120
 DEFAULT_X_POS = 50
 DEFAULT_Y_POS = 50
-REFRESH_RATE_MS = 10
+REFRESH_RATE_MS = 50
 CONFIG_FILE = "monitor_config.json"
 
 # --- 手動修正設定 ---
@@ -100,7 +100,7 @@ class WindowMonitor:
                 box = (
                     crop_h_each_side + 1365, crop_v_each_side + 60,
                     pil_image.width - crop_h_each_side, 
-                    pil_image.height - crop_v_each_side - 30
+                    pil_image.height - crop_v_each_side - 270
                 )
                 cropped_image = pil_image.crop(box)
             except ValueError:

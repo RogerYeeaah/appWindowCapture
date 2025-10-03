@@ -92,7 +92,7 @@ DEFAULT_X_POS = 50
 DEFAULT_Y_POS = 50
 
 # 更新頻率 (毫秒)，數值越小越流暢，也越耗 CPU
-REFRESH_RATE_MS = 20
+REFRESH_RATE_MS = 50
 
 # --- 手動修正設定 ---
 # 透過反覆測試來微調這些數值，以裁切掉多餘的邊緣
