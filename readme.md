@@ -66,16 +66,9 @@ pip install pyobjc pillow
 
 ## 🚀 使用方法
 
-### 1. 尋找目標視窗 ID
+### 1. 設定腳本參數
 
-首先，您需要知道您想監控的應用程式視窗的唯一 ID。
-(您可以在專案中加入我們之前用過的 `find_window_id_advanced.py` 腳本來輔助使用者尋找)
-
-* **方法**：執行一個輔助腳本 (未包含在此主程式中，需自行準備) 來列出所有視窗的 ID，或透過其他方式獲取。
-
-### 2. 設定腳本參數
-
-打開主程式檔案 (例如 `dynamic_live_monitor.py`)，修改最上方的「使用者設定」區塊。
+打開主程式檔案 ( `screen_translator.py`)，修改最上方的「使用者設定」區塊。
 
 ```python
 # ===================================================================
@@ -126,6 +119,63 @@ python3 your_script_name.py
 * **關閉**：切換到執行腳本的終端機，按下 `Control` + `C`。
 
 ---
+
+## 📦 打包方法
+### 步驟一：建立並啟用虛擬環境
+
+為您的專案建立一個獨立的 Python 環境，以隔離打包所需的依賴套件。
+
+```bash
+# 1. 建立 venv (使用您的 Python 3.11)
+python3.11 -m venv .venv-py311
+
+# 2. 啟用 venv (macOS / Linux)
+source .venv-py311/bin/activate
+```
+啟用成功後，您的終端機提示字元前會出現 `(.venv-py311)`。
+
+### 步驟二：安裝套件 (包含 py2app)
+
+在已啟用的環境中，安裝 `py2app` 以及您應用程式需要的所有其他套件。
+
+```bash
+# 將 YourPackage1 YourPackage2 換成您專案的實際依賴
+pip install py2app YourPackage1 YourPackage2
+```
+
+### 步驟三：建立 `setup.py` 設定檔
+
+`py2app` 透過 `setup.py` 檔案來獲取打包設定。在您的專案根目錄建立此檔案。
+
+```python
+# setup.py
+from setuptools import setup
+
+APP = ['main.py'] # 您的主程式檔案
+DATA_FILES = [] # 需要包含的額外檔案 (如圖片、設定檔)
+OPTIONS = {
+    'packages': ['requests', 'numpy'], # 明確需要包含的套件
+    'iconfile': 'app_icon.icns', # 應用程式圖示 (可選)
+}
+
+setup(
+    app=APP,
+    data_files=DATA_FILES,
+    options={'py2app': OPTIONS},
+    setup_requires=['py2app'],
+)
+```
+
+### 步驟四：執行打包指令
+
+一切就緒後，執行 `py2app` 指令來建立您的應用程式。
+
+```bash
+# 確保您仍在啟用的 venv 環境中
+python setup.py py2app
+```
+
+打包成功後，您會在專案目錄下看到新增的 `build/` 和 `dist/` 資料夾。您最終的獨立應用程式 `.app` 檔案就在 `dist/` 資料夾中。
 
 ## 📝 授權
 
