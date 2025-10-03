@@ -6,7 +6,7 @@ import json
 import os
 from PIL import Image, ImageTk
 from Quartz import (
-    CGWindowListCopyWindowInfo, kCGWindowListOptionAll, CGRectNull, CGWindowListCreateImage, 
+    CGRectNull, CGWindowListCreateImage, 
     kCGWindowListOptionIncludingWindow, CGImageGetWidth, CGImageGetHeight,
     CGImageGetDataProvider, CGDataProviderCopyData, CGImageGetBytesPerRow
 )
