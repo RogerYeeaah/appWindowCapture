@@ -10,7 +10,6 @@ from Quartz import (
     kCGWindowListOptionIncludingWindow, CGImageGetWidth, CGImageGetHeight,
     CGImageGetDataProvider, CGDataProviderCopyData, CGImageGetBytesPerRow,
     kCGWindowImageBoundsIgnoreFraming,
-    # === 新增：匯入尋找視窗所需的選項 ===
     CGWindowListCopyWindowInfo, 
     kCGWindowListOptionAll,
     kCGWindowListExcludeDesktopElements, 
@@ -20,61 +19,38 @@ from Quartz import (
 # ===================================================================
 # --- 使用者設定 ---
 # ===================================================================
-# *** 核心修改：現在只需要設定應用程式名稱 ***
-TARGET_APP_NAME = "音樂" # 例如 "Music", "Google Chrome", "Spotify"
+TARGET_APP_NAME = "音樂" 
+PREVIEW_BASE_WIDTH = 140
+# === 新增：按鈕大小設定 ===
+BUTTON_SIZE = (16, 16)  # 按鈕的 (寬, 高)，單位是像素
 # ===================================================================
-PREVIEW_BASE_WIDTH = 130
 DEFAULT_X_POS = 50
 DEFAULT_Y_POS = 50
 REFRESH_RATE_MS = 50
 CONFIG_FILE = "monitor_config.json"
-
-# --- 手動修正設定 ---
 MANUAL_CROP_VERTICAL = 0
 MANUAL_CROP_HORIZONTAL = 0 
 # ===================================================================
 
 
-# === 新增：從 find_window_id.py 移植過來的函式 ===
 def get_window_id_by_app_name(app_name):
-    """
-    根據應用程式名稱 (owner_name) 和視窗標題 (window_name) 尋找視窗 ID。
-    """
     options = kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements
     window_list = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
-    
     target_app_name_lower = app_name.lower()
-
     for window in window_list:
         owner_name = window.get('kCGWindowOwnerName')
-        # 新增：同時獲取視窗標題 (window_name)
         window_name = window.get('kCGWindowName')
-        
-        # 檢查 owner_name 和 window_name 是否存在
         if owner_name and window_name:
-            
-            ## --- 方案一：嚴格相等 (依您的要求，但可能因視窗標題變化而找不到) --- ##
-            # 說明：要求 owner_name 和 window_name 都必須與 TARGET_APP_NAME 完全相同。
-            # if owner_name.lower() == target_app_name_lower and window_name.lower() == target_app_name_lower:
-            #     return window.get('kCGWindowNumber')
-
-            ## --- 方案二：寬鬆包含 (更推薦，適應性更強) --- ##
-            # 說明：要求 owner_name 必須相符，且 window_name 必須包含 TARGET_APP_NAME。
-            # 例如 app_name 是 "Music"，可以成功匹配 "音樂" 或 "播放列表 - Music" 等標題。
             if owner_name.lower() == target_app_name_lower and target_app_name_lower in window_name.lower():
                 return window.get('kCGWindowNumber')
-            
-    return None # 如果找不到，返回 None
+    return None
 
 class WindowMonitor:
     def __init__(self, root, start_x, start_y):
         self.root = root
         self.initial_x = start_x
         self.initial_y = start_y
-        
-        # === 新增：用來儲存動態找到的視窗 ID ===
         self.target_id = None
-        
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.last_known_adjusted_width = 0
@@ -87,13 +63,57 @@ class WindowMonitor:
         self.preview_label = tk.Label(root, bg="black", fg="white", text=f"正在搜尋\n'{TARGET_APP_NAME}'...")
         self.preview_label.pack(fill="both", expand=True)
 
-        # 綁定拖曳事件
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            image_path = os.path.join(script_dir, "assets", "img", "btn-bg.png")
+            
+            img = Image.open(image_path)
+            img = img.resize(BUTTON_SIZE, Image.Resampling.LANCZOS)
+            self.close_button_image = ImageTk.PhotoImage(img)
+
+        except FileNotFoundError:
+            print(f"警告：找不到圖片檔案於 '{image_path}'，將使用純色背景按鈕。")
+            self.close_button_image = None
+        
+        # === 核心修改：簡化按鈕設定，移除所有文字相關選項 ===
+        self.close_button = tk.Button(
+            self.root, 
+            command=self.root.destroy,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0
+        )
+
+        if self.close_button_image:
+            self.close_button.config(
+                image=self.close_button_image,
+                width=BUTTON_SIZE[0],
+                height=BUTTON_SIZE[1],
+                bg="black",
+                # 將點擊時的背景也設為黑色，徹底消除白邊
+                activebackground="black" 
+            )
+        else:
+            # 備用方案，如果找不到圖片
+            self.close_button.config(text="✕", font=("Arial", 9), fg="white", bg="#333333")
+
+        self.root.bind("<Enter>", self.show_close_button)
+        self.preview_label.bind("<Enter>", self.show_close_button)
+        self.root.bind("<Leave>", self.hide_close_button)
+
         self.preview_label.bind("<ButtonPress-1>", self.start_drag)
         self.preview_label.bind("<B1-Motion>", self.do_drag)
         self.preview_label.bind("<ButtonRelease-1>", self.stop_drag)
 
         print(f"懸浮視窗已啟動，正在尋找 '{TARGET_APP_NAME}'...")
         self.update_preview()
+
+    def show_close_button(self, event):
+        self.close_button.place(relx=1.0, rely=0.0, anchor='ne')
+        self.close_button.lift()
+
+    def hide_close_button(self, event):
+        self.close_button.place_forget()
 
     def start_drag(self, event):
         self.drag_start_x = event.x
@@ -116,12 +136,10 @@ class WindowMonitor:
         except Exception as e:
             print(f"儲存位置失敗: {e}")
 
-    # *** 核心修改：capture_window 現在接收一個 ID 作為參數 ***
     def capture_window(self, window_id):
         try:
             cg_image = CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, window_id, kCGWindowImageBoundsIgnoreFraming)
             if not cg_image: return None
-            # ... 後續程式碼不變 ...
             width = CGImageGetWidth(cg_image)
             height = CGImageGetHeight(cg_image)
             if width <= MANUAL_CROP_HORIZONTAL or height <= MANUAL_CROP_VERTICAL: return None
@@ -132,27 +150,21 @@ class WindowMonitor:
         except Exception:
             return None
 
-    # *** 核心修改：update_preview 加入了自動搜尋和狀態管理的邏輯 ***
     def update_preview(self):
-        # 步驟 1: 如果還沒有 ID，就去尋找
         if self.target_id is None:
             self.target_id = get_window_id_by_app_name(TARGET_APP_NAME)
-            # 如果還是找不到，顯示提示訊息並在 2 秒後重試
             if self.target_id is None:
                 self.preview_label.config(image=None, text=f"正在搜尋\n'{TARGET_APP_NAME}'...", fg="white", bg="black")
-                self.root.after(2000, self.update_preview) # 找不到時，放慢更新頻率
+                self.root.after(2000, self.update_preview)
                 return
             else:
                 print(f"成功找到 '{TARGET_APP_NAME}' 的視窗 ID: {self.target_id}")
 
-        # 步驟 2: 如果有 ID，就嘗試擷取畫面
         pil_image = self.capture_window(self.target_id)
         
-        # 步驟 3: 根據擷取結果更新畫面
         if pil_image:
             cropped_image = None
             try:
-                # 裁切邏輯
                 crop_h_each_side = MANUAL_CROP_HORIZONTAL // 2
                 crop_v_each_side = MANUAL_CROP_VERTICAL // 2
                 box = (
@@ -167,7 +179,6 @@ class WindowMonitor:
 
             img_w, img_h = cropped_image.size
             
-            # 調整視窗大小
             if img_w != self.last_known_adjusted_width or img_h != self.last_known_adjusted_height:
                 is_first_resize = (self.last_known_adjusted_width == 0)
                 self.last_known_adjusted_width, self.last_known_adjusted_height = img_w, img_h
@@ -178,7 +189,6 @@ class WindowMonitor:
                     y_pos = self.initial_y if is_first_resize else self.root.winfo_y()
                     self.root.geometry(f"{PREVIEW_BASE_WIDTH}x{new_height}+{x_pos}+{y_pos}")
 
-            # 顯示圖片
             preview_width, preview_height = self.root.winfo_width(), self.root.winfo_height()
             if preview_width > 0 and preview_height > 0:
                 cropped_image.thumbnail((preview_width, preview_height), Image.Resampling.LANCZOS)
@@ -186,10 +196,9 @@ class WindowMonitor:
                 self.preview_label.config(image=photo, text="")
                 self.preview_label.image = photo
         else:
-            # 如果擷取失敗 (例如目標視窗被關閉)，重設 ID 並回到搜尋狀態
             print(f"視窗 ID {self.target_id} 已失效，重新開始搜尋...")
             self.target_id = None
-            self.last_known_adjusted_width = 0 # 重設尺寸記錄
+            self.last_known_adjusted_width = 0
         
         self.root.after(REFRESH_RATE_MS, self.update_preview)
 
