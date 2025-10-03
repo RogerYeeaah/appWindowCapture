@@ -8,22 +8,23 @@ from PIL import Image, ImageTk
 from Quartz import (
     CGRectNull, CGWindowListCreateImage, 
     kCGWindowListOptionIncludingWindow, CGImageGetWidth, CGImageGetHeight,
-    CGImageGetDataProvider, CGDataProviderCopyData, CGImageGetBytesPerRow
+    CGImageGetDataProvider, CGDataProviderCopyData, CGImageGetBytesPerRow,
+    kCGWindowImageBoundsIgnoreFraming
 )
 
 # ===================================================================
 # --- 使用者設定 ---
 # ===================================================================
 TARGET_WINDOW_ID = 20540
-PREVIEW_BASE_WIDTH = 120
+PREVIEW_BASE_WIDTH = 170
 DEFAULT_X_POS = 50
 DEFAULT_Y_POS = 50
 REFRESH_RATE_MS = 50
 CONFIG_FILE = "monitor_config.json"
 
 # --- 手動修正設定 ---
-MANUAL_CROP_VERTICAL = 240
-MANUAL_CROP_HORIZONTAL = 230 
+MANUAL_CROP_VERTICAL = 0
+MANUAL_CROP_HORIZONTAL = 0 
 # ===================================================================
 
 class WindowMonitor:
@@ -77,7 +78,7 @@ class WindowMonitor:
     def capture_window(self):
         # ... (擷取邏輯不變) ...
         try:
-            cg_image = CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, TARGET_WINDOW_ID, 0)
+            cg_image = CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, TARGET_WINDOW_ID, kCGWindowImageBoundsIgnoreFraming)
             if not cg_image: return None
             width = CGImageGetWidth(cg_image)
             height = CGImageGetHeight(cg_image)
@@ -98,9 +99,9 @@ class WindowMonitor:
                 crop_h_each_side = MANUAL_CROP_HORIZONTAL // 2
                 crop_v_each_side = MANUAL_CROP_VERTICAL // 2
                 box = (
-                    crop_h_each_side + 1365, crop_v_each_side + 60,
+                    crop_h_each_side + 1360, crop_v_each_side + 100,
                     pil_image.width - crop_h_each_side, 
-                    pil_image.height - crop_v_each_side - 270
+                    pil_image.height - crop_v_each_side
                 )
                 cropped_image = pil_image.crop(box)
             except ValueError:
