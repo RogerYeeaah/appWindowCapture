@@ -4,6 +4,8 @@
 import tkinter as tk
 import json
 import os
+
+from AppKit import NSRunningApplication
 from PIL import Image, ImageTk
 from Quartz import (
     CGRectNull, CGWindowListCreateImage, 
@@ -32,6 +34,20 @@ MANUAL_CROP_VERTICAL = 0
 MANUAL_CROP_HORIZONTAL = 0 
 # ===================================================================
 
+
+def activate_app_by_name(app_name):
+    """ 使用原生 API 啟用應用程式 """
+    apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_(app_name)
+    if not apps:
+        # Fallback for localized names like "音樂" vs "Music"
+        for app in NSRunningApplication.runningApplications():
+            if app.localizedName() == app_name:
+                app.activateWithOptions_(0)
+                return True
+    elif apps:
+        apps[0].activateWithOptions_(0)
+        return True
+    return False
 
 def get_window_id_by_app_name(app_name):
     options = kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements
@@ -65,7 +81,7 @@ class WindowMonitor:
 
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            image_path = os.path.join(script_dir, "assets", "img", "btn-bg.png")
+            image_path = os.path.join(script_dir, "assets", "img", "btn-close.png")
             
             img = Image.open(image_path)
             img = img.resize(BUTTON_SIZE, Image.Resampling.LANCZOS)
@@ -196,9 +212,16 @@ class WindowMonitor:
                 self.preview_label.config(image=photo, text="")
                 self.preview_label.image = photo
         else:
-            print(f"視窗 ID {self.target_id} 已失效，重新開始搜尋...")
-            self.target_id = None
-            self.last_known_adjusted_width = 0
+            if not self.activated_this_cycle:
+                print("--- 擷取失敗，準備嘗試啟用 ---")
+                try:
+                    applescript.tell(f'app "{TARGET_APP_NAME}"', 'activate')
+                    print(f"--- AppleScript 指令已發送給 '{TARGET_APP_NAME}' ---")
+                    self.activated_this_cycle = True
+                    # 給系統一點反應時間
+                    time.sleep(0.5) 
+                except Exception as e:
+                    print(f"--- AppleScript 啟用時發生錯誤: {e} ---")
         
         self.root.after(REFRESH_RATE_MS, self.update_preview)
 
