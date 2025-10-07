@@ -4,6 +4,7 @@
 import tkinter as tk
 import json
 import os
+import time
 
 from AppKit import NSRunningApplication
 from PIL import Image, ImageTk
@@ -22,59 +23,80 @@ from Quartz import (
 # --- 使用者設定 ---
 # ===================================================================
 TARGET_APP_NAME = "音樂" 
-PREVIEW_BASE_WIDTH = 140
-# === 新增：按鈕大小設定 ===
-BUTTON_SIZE = (16, 16)  # 按鈕的 (寬, 高)，單位是像素
+# === 修改：將 PREVIEW_BASE_WIDTH 改為預設值 ===
+DEFAULT_PREVIEW_WIDTH = 140
+MIN_PREVIEW_WIDTH = 80 # === 新增：最小預覽寬度 ===
+BUTTON_SIZE = (16, 16)
 # ===================================================================
 DEFAULT_X_POS = 50
 DEFAULT_Y_POS = 50
 REFRESH_RATE_MS = 50
 CONFIG_FILE = "monitor_config.json"
-MANUAL_CROP_VERTICAL = 0
-MANUAL_CROP_HORIZONTAL = 0 
+# ===================================================================
+MANUAL_CROP_TOP = 100
+MANUAL_CROP_BOTTOM = 240
+MANUAL_CROP_LEFT = 1360
+MANUAL_CROP_RIGHT = 0
 # ===================================================================
 
 
 def activate_app_by_name(app_name):
     """ 使用原生 API 啟用應用程式 """
     apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_(app_name)
-    if not apps:
-        # Fallback for localized names like "音樂" vs "Music"
-        for app in NSRunningApplication.runningApplications():
-            if app.localizedName() == app_name:
-                app.activateWithOptions_(0)
-                return True
-    elif apps:
+    if apps:
         apps[0].activateWithOptions_(0)
         return True
+    
+    all_apps = NSRunningApplication.runningApplications()
+    for app in all_apps:
+        if app.localizedName() == app_name:
+            app.activateWithOptions_(0)
+            return True
+            
+    print(f"找不到名為 '{app_name}' 的應用程式。")
     return False
 
 def get_window_id_by_app_name(app_name):
     options = kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements
     window_list = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+    
+    if app_name.lower() in ["音樂", "music", "com.apple.music"]:
+        for window in window_list:
+            owner_name = window.get('kCGWindowOwnerName', '').lower()
+            window_name = window.get('kCGWindowName', '').lower()
+            if owner_name in ["music", "音樂"] and window_name:
+                return window.get('kCGWindowNumber')
+    
     target_app_name_lower = app_name.lower()
     for window in window_list:
-        owner_name = window.get('kCGWindowOwnerName')
-        window_name = window.get('kCGWindowName')
-        if owner_name and window_name:
-            if owner_name.lower() == target_app_name_lower and target_app_name_lower in window_name.lower():
-                return window.get('kCGWindowNumber')
+        owner_name = window.get('kCGWindowOwnerName', '').lower()
+        if owner_name == target_app_name_lower:
+            return window.get('kCGWindowNumber')
+            
     return None
 
 class WindowMonitor:
-    def __init__(self, root, start_x, start_y):
+    # === 修改：建構子接收 width 參數 ===
+    def __init__(self, root, start_x, start_y, start_width):
         self.root = root
         self.initial_x = start_x
         self.initial_y = start_y
+        self.current_width = start_width # === 新增：儲存目前寬度 ===
         self.target_id = None
+        self.activated_this_cycle = False
+        
+        # === 新增：用於拖曳與調整大小的狀態變數 ===
         self.drag_start_x = 0
         self.drag_start_y = 0
-        self.last_known_adjusted_width = 0
-        self.last_known_adjusted_height = 0
+        self.resize_start_x = 0
+        self.resize_start_width = 0
+        self.last_aspect_ratio = 16 / 9 # 預設長寬比
 
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.geometry(f"{PREVIEW_BASE_WIDTH}x{int(PREVIEW_BASE_WIDTH*0.6)}+{start_x}+{start_y}")
+        # === 修改：使用初始寬度和預設長寬比設定視窗 ===
+        initial_height = int(start_width / self.last_aspect_ratio)
+        self.root.geometry(f"{start_width}x{initial_height}+{start_x}+{start_y}")
 
         self.preview_label = tk.Label(root, bg="black", fg="white", text=f"正在搜尋\n'{TARGET_APP_NAME}'...")
         self.preview_label.pack(fill="both", expand=True)
@@ -82,54 +104,49 @@ class WindowMonitor:
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             image_path = os.path.join(script_dir, "assets", "img", "btn-close.png")
-            
-            img = Image.open(image_path)
-            img = img.resize(BUTTON_SIZE, Image.Resampling.LANCZOS)
+            img = Image.open(image_path).resize(BUTTON_SIZE, Image.Resampling.LANCZOS)
             self.close_button_image = ImageTk.PhotoImage(img)
-
         except FileNotFoundError:
-            print(f"警告：找不到圖片檔案於 '{image_path}'，將使用純色背景按鈕。")
             self.close_button_image = None
         
-        # === 核心修改：簡化按鈕設定，移除所有文字相關選項 ===
-        self.close_button = tk.Button(
-            self.root, 
-            command=self.root.destroy,
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=0
-        )
-
+        self.close_button = tk.Button(self.root, command=self.root.destroy, relief="flat", borderwidth=0, highlightthickness=0)
         if self.close_button_image:
-            self.close_button.config(
-                image=self.close_button_image,
-                width=BUTTON_SIZE[0],
-                height=BUTTON_SIZE[1],
-                bg="black",
-                # 將點擊時的背景也設為黑色，徹底消除白邊
-                activebackground="black" 
-            )
+            self.close_button.config(image=self.close_button_image, width=BUTTON_SIZE[0], height=BUTTON_SIZE[1], bg="black", activebackground="black")
         else:
-            # 備用方案，如果找不到圖片
             self.close_button.config(text="✕", font=("Arial", 9), fg="white", bg="#333333")
 
-        self.root.bind("<Enter>", self.show_close_button)
-        self.preview_label.bind("<Enter>", self.show_close_button)
-        self.root.bind("<Leave>", self.hide_close_button)
+        # === 新增：建立右下角的調整大小拖曳點 ===
+        self.resize_grip = tk.Label(self.root, bg="#555555", cursor="sizing")
+        self.resize_grip.place(relx=1.0, rely=1.0, anchor='se', width=10, height=10)
+
+        # === 修改：事件綁定，區分視窗拖曳和大小調整 ===
+        self.root.bind("<Enter>", self.show_controls)
+        self.root.bind("<Leave>", self.hide_controls)
 
         self.preview_label.bind("<ButtonPress-1>", self.start_drag)
         self.preview_label.bind("<B1-Motion>", self.do_drag)
         self.preview_label.bind("<ButtonRelease-1>", self.stop_drag)
 
+        # === 新增：為拖曳點綁定調整大小的事件 ===
+        self.resize_grip.bind("<ButtonPress-1>", self.start_resize)
+        self.resize_grip.bind("<B1-Motion>", self.do_resize)
+        self.resize_grip.bind("<ButtonRelease-1>", self.stop_resize)
+
         print(f"懸浮視窗已啟動，正在尋找 '{TARGET_APP_NAME}'...")
-        self.update_preview()
+        self.hide_controls(None) # 初始隱藏
+        # === 修正：使用 .after() 來延遲首次更新，確保視窗已正確建立 ===
+        self.root.after(REFRESH_RATE_MS, self.update_preview)
 
-    def show_close_button(self, event):
+    # === 修改：合併顯示/隱藏控制項的邏輯 ===
+    def show_controls(self, event):
         self.close_button.place(relx=1.0, rely=0.0, anchor='ne')
+        self.resize_grip.place(relx=1.0, rely=1.0, anchor='se', width=10, height=10)
         self.close_button.lift()
+        self.resize_grip.lift()
 
-    def hide_close_button(self, event):
+    def hide_controls(self, event):
         self.close_button.place_forget()
+        self.resize_grip.place_forget()
 
     def start_drag(self, event):
         self.drag_start_x = event.x
@@ -138,32 +155,60 @@ class WindowMonitor:
     def do_drag(self, event):
         deltax = event.x - self.drag_start_x
         deltay = event.y - self.drag_start_y
-        x = self.root.winfo_x() + deltax
-        y = self.root.winfo_y() + deltay
-        self.root.geometry(f"+{x}+{y}")
+        self.root.geometry(f"+{self.root.winfo_x() + deltax}+{self.root.winfo_y() + deltay}")
 
     def stop_drag(self, event):
-        current_x = self.root.winfo_x()
-        current_y = self.root.winfo_y()
-        config = {'x': current_x, 'y': current_y}
+        self.save_config()
+
+    # === 新增：調整大小的相關方法 ===
+    def start_resize(self, event):
+        self.resize_start_x = event.x_root
+        self.resize_start_width = self.root.winfo_width()
+
+    def do_resize(self, event):
+        delta_x = event.x_root - self.resize_start_x
+        new_width = self.resize_start_width + delta_x
+        
+        if new_width >= MIN_PREVIEW_WIDTH:
+            new_height = int(new_width / self.last_aspect_ratio)
+            self.root.geometry(f"{new_width}x{new_height}")
+            # 即時更新UI，避免閃爍
+            self.root.update_idletasks() 
+
+    def stop_resize(self, event):
+        self.current_width = self.root.winfo_width()
+        self.save_config()
+    
+    # === 新增：統一的設定存檔方法 ===
+    def save_config(self):
+        config = {
+            'x': self.root.winfo_x(),
+            'y': self.root.winfo_y(),
+            'width': self.root.winfo_width()
+        }
         try:
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(config, f)
+            print(f"設定已儲存: {config}")
         except Exception as e:
-            print(f"儲存位置失敗: {e}")
+            print(f"儲存設定失敗: {e}")
+
 
     def capture_window(self, window_id):
         try:
             cg_image = CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, window_id, kCGWindowImageBoundsIgnoreFraming)
             if not cg_image: return None
-            width = CGImageGetWidth(cg_image)
-            height = CGImageGetHeight(cg_image)
-            if width <= MANUAL_CROP_HORIZONTAL or height <= MANUAL_CROP_VERTICAL: return None
-            stride = CGImageGetBytesPerRow(cg_image)
+            
+            width, height = CGImageGetWidth(cg_image), CGImageGetHeight(cg_image)
+            if width <= (MANUAL_CROP_LEFT + MANUAL_CROP_RIGHT) or height <= (MANUAL_CROP_TOP + MANUAL_CROP_BOTTOM):
+                return None
+
             provider = CGImageGetDataProvider(cg_image)
             data = CGDataProviderCopyData(provider)
+            stride = CGImageGetBytesPerRow(cg_image)
             return Image.frombytes("RGBA", (width, height), data, "raw", "BGRA", stride)
-        except Exception:
+        except Exception as e:
+            print(f"擷取視窗時發生錯誤: {e}")
             return None
 
     def update_preview(self):
@@ -179,66 +224,68 @@ class WindowMonitor:
         pil_image = self.capture_window(self.target_id)
         
         if pil_image:
-            cropped_image = None
+            self.activated_this_cycle = False
             try:
-                crop_h_each_side = MANUAL_CROP_HORIZONTAL // 2
-                crop_v_each_side = MANUAL_CROP_VERTICAL // 2
                 box = (
-                    crop_h_each_side + 1360, crop_v_each_side + 100,
-                    pil_image.width - crop_h_each_side, 
-                    pil_image.height - crop_v_each_side - 240
+                    MANUAL_CROP_LEFT, MANUAL_CROP_TOP,
+                    pil_image.width - MANUAL_CROP_RIGHT, pil_image.height - MANUAL_CROP_BOTTOM
                 )
                 cropped_image = pil_image.crop(box)
-            except (ValueError, SystemError):
-                self.root.after(REFRESH_RATE_MS, self.update_preview)
-                return
+                img_w, img_h = cropped_image.size
 
-            img_w, img_h = cropped_image.size
-            
-            if img_w != self.last_known_adjusted_width or img_h != self.last_known_adjusted_height:
-                is_first_resize = (self.last_known_adjusted_width == 0)
-                self.last_known_adjusted_width, self.last_known_adjusted_height = img_w, img_h
-                if img_h > 0:
-                    aspect_ratio = img_w / img_h
-                    new_height = int(PREVIEW_BASE_WIDTH / aspect_ratio)
-                    x_pos = self.initial_x if is_first_resize else self.root.winfo_x()
-                    y_pos = self.initial_y if is_first_resize else self.root.winfo_y()
-                    self.root.geometry(f"{PREVIEW_BASE_WIDTH}x{new_height}+{x_pos}+{y_pos}")
+                # === 修改：更新長寬比並調整視窗高度 ===
+                if img_w > 0 and img_h > 0:
+                    new_aspect_ratio = img_w / img_h
+                    if abs(new_aspect_ratio - self.last_aspect_ratio) > 0.01:
+                        self.last_aspect_ratio = new_aspect_ratio
+                        # 根據當前寬度和新的長寬比，調整視窗高度
+                        current_win_width = self.root.winfo_width()
+                        new_height = int(current_win_width / self.last_aspect_ratio)
+                        self.root.geometry(f"{current_win_width}x{new_height}")
 
-            preview_width, preview_height = self.root.winfo_width(), self.root.winfo_height()
-            if preview_width > 0 and preview_height > 0:
-                cropped_image.thumbnail((preview_width, preview_height), Image.Resampling.LANCZOS)
-                photo = ImageTk.PhotoImage(cropped_image)
-                self.preview_label.config(image=photo, text="")
-                self.preview_label.image = photo
+                preview_width, preview_height = self.root.winfo_width(), self.root.winfo_height()
+                if preview_width > 0 and preview_height > 0:
+                    cropped_image.thumbnail((preview_width, preview_height), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(cropped_image)
+                    self.preview_label.config(image=photo, text="")
+                    self.preview_label.image = photo
+
+            except (ValueError, SystemError) as e:
+                print(f"裁切或顯示圖片時發生錯誤: {e}")
         else:
             if not self.activated_this_cycle:
-                print("--- 擷取失敗，準備嘗試啟用 ---")
-                try:
-                    applescript.tell(f'app "{TARGET_APP_NAME}"', 'activate')
-                    print(f"--- AppleScript 指令已發送給 '{TARGET_APP_NAME}' ---")
+                print(f"--- 擷取失敗，嘗試啟用 '{TARGET_APP_NAME}' ---")
+                if activate_app_by_name(TARGET_APP_NAME):
+                    print(f"--- 已發送啟用指令給 '{TARGET_APP_NAME}' ---")
                     self.activated_this_cycle = True
-                    # 給系統一點反應時間
-                    time.sleep(0.5) 
-                except Exception as e:
-                    print(f"--- AppleScript 啟用時發生錯誤: {e} ---")
+                    time.sleep(0.5)
+                else:
+                    self.root.after(2000, self.update_preview)
+                    return
+            self.target_id = None
         
         self.root.after(REFRESH_RATE_MS, self.update_preview)
 
+# === 修改：load_config 函式讀取 width ===
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
                 config = json.load(f)
-                return config.get('x', DEFAULT_X_POS), config.get('y', DEFAULT_Y_POS)
+                x = config.get('x', DEFAULT_X_POS)
+                y = config.get('y',DEFAULT_Y_POS)
+                width = config.get('width', DEFAULT_PREVIEW_WIDTH)
+                return x, y, width
         except (json.JSONDecodeError, IOError):
-            return DEFAULT_X_POS, DEFAULT_Y_POS
-    return DEFAULT_X_POS, DEFAULT_Y_POS
+            pass
+    return DEFAULT_X_POS, DEFAULT_Y_POS, DEFAULT_PREVIEW_WIDTH
 
 def main():
-    start_x, start_y = load_config()
+    # === 修改：載入 x, y 和 width ===
+    start_x, start_y, start_width = load_config()
     root = tk.Tk()
-    app = WindowMonitor(root, start_x, start_y)
+    # === 修改：將 width 傳遞給 WindowMonitor ===
+    app = WindowMonitor(root, start_x, start_y, start_width)
     root.mainloop()
 
 if __name__ == '__main__':

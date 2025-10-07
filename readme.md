@@ -41,7 +41,7 @@ cd /path/to/your/project
 python3 -m venv .venv
 
 # 啟用虛擬環境
-source .venv/bin/activate
+source .venv-py311/bin/activate
 ```
 
 ### 2. 安裝依賴套件
